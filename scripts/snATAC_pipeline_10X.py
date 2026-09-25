@@ -220,10 +220,17 @@ def process_args():
 	align_group.add_argument('-t', '--threads', required=False, type=int, default=8, help='Number of threads to use for alignment [8]')
 	align_group.add_argument('-m', '--memory', required=False, type=int, default=4, help='Maximum amount of memory (G) per thread for samtools sort [4]')
 	align_group.add_argument('-q', '--map-quality', required=False, type=int, default=30, help='Mapping quality score filter for samtools [30]')
-	align_group.add_argument('-ref', '--reference', required=False, type=str, default='/home/joshchiou/references/male.hg19.fa', help='Path to the reference genome')
+	# Portability fix (repro branch): original defaults were hg19 paths on the original
+	# developer's machine (/home/joshchiou/... and /nfs/lab/elisha/...).  Updated to
+	# point at the hg38 reference files already present in reference_files/, which is
+	# mounted at /reference_files inside the container.  Pass explicit paths on the CLI
+	# to override.
+	align_group.add_argument('-ref', '--reference', required=False, type=str, default='/reference_files/GRCh38.fa', help='Path to the reference genome (hg38)')
 
 	dup_group = parser.add_argument_group('Remove duplicates arguments')
-	dup_group.add_argument('--picard', required=False, type=str, default='/home/joshchiou/bin/picard.jar', help='Path to picard.jar')
+	# --picard argument retained for CLI compatibility but is dead code: remove_duplicate_reads()
+	# uses samtools only and never calls picard.  Do not install picard.
+	dup_group.add_argument('--picard', required=False, type=str, default='', help='(unused) Path to picard.jar — argument present for CLI compatibility only')
 
 	matrix_group = parser.add_argument_group('Matrix generation arguments')
 	matrix_group.add_argument('--shift', required=False, type=int, default=-100, help='Read shift length')
@@ -231,9 +238,9 @@ def process_args():
 	matrix_group.add_argument('--minimum-reads', required=False, type=int, default=500, help='Minimum number of reads for barcode inclusion')
 	matrix_group.add_argument('--minimum-frip', required=False, type=float, default=0, help='Minimum frip for barcode inclusion')
 	matrix_group.add_argument('--window-size', required=False, type=int, default=5, help='Size (kb) to use for defining windows of accessibility')
-	matrix_group.add_argument('--chrom-sizes', required=False, type=str, default='/nfs/lab/elisha/scripts/hg19.chrom.sizes', help='Chromosome sizes file from UCSC')
-	matrix_group.add_argument('--blacklist-file', required=False, type=str, default='/nfs/lab/elisha/scripts/hg19-blacklist.v2.bed', help='BED file of blacklisted regions')
-	matrix_group.add_argument('--promoter-file', required=False, type=str, default='/nfs/lab/elisha/scripts/gencode.v19.2kb_autosomal_prom_uniq.bed', help='BED file of autosomal promoter regions')
+	matrix_group.add_argument('--chrom-sizes', required=False, type=str, default='/reference_files/hg38.chrom.sizes', help='Chromosome sizes file from UCSC (hg38)')
+	matrix_group.add_argument('--blacklist-file', required=False, type=str, default='/reference_files/hg38-blacklist.v3.bed', help='BED file of blacklisted regions (hg38 v3)')
+	matrix_group.add_argument('--promoter-file', required=False, type=str, default='/reference_files/gencode.hg38.v19.2kb_autosomal_prom_uniq.bed', help='BED file of autosomal promoter regions (hg38)')
 
 
 	skip_group = parser.add_argument_group('Skip steps')

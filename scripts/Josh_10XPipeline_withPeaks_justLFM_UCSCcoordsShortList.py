@@ -21,7 +21,11 @@ def generate_matrix(args):
 	regions_file = args.output_prefix + '.regions'
 	mtx_file = args.output_prefix + '.mtx'
 
-	windows_file = "/reference_files/jan17_2kbUpstream_hg38Promoters_gencode_v41_UCSCcoors_mod.txt"
+	# Portability fix (repro branch): path was previously hardcoded as a string literal
+	# inside this function body, making it impossible to override without editing the
+	# source.  Moved to --windows-file CLI argument; original path kept as the default
+	# so existing callers that relied on the container mounting the file there still work.
+	windows_file = args.windows_file
 	window_intersect = intersect_regions(tagalign_file, windows_file)
 	cut = subprocess.Popen(['cut', '-f', '4,10'], stdin=window_intersect.stdout, stdout=subprocess.PIPE)
 	sort = subprocess.Popen(['sort', '-S', '{}G'.format(args.memory * args.threads)], stdin=cut.stdout, stdout=subprocess.PIPE)
@@ -91,6 +95,7 @@ def process_args():
 	matrix_group.add_argument('--chrom-sizes', required=False, type=str, default='/reference_files/hg38.chrom.sizes', help='Chromosome sizes file from UCSC')
 	matrix_group.add_argument('--blacklist-file', required=False, type=str, default='/reference_files/hg38-blacklist.v3.bed', help='BED file of blacklisted regions')
 	matrix_group.add_argument('--promoter-file', required=False, type=str, default='/reference_files/gencode.hg38.v19.2kb_autosomal_prom_uniq.bed', help='BED file of autosomal promoter regions')
+	matrix_group.add_argument('--windows-file', required=False, type=str, default='/reference_files/jan17_2kbUpstream_hg38Promoters_gencode_v41_UCSCcoors_mod.txt', help='BED file of promoter windows used for accessibility matrix (portability fix: was hardcoded in function body)')
 
 
 	skip_group = parser.add_argument_group('Skip steps')
