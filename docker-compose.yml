@@ -1,0 +1,46 @@
+services:
+  npod-repro:
+    build: .
+    image: npod-repro:latest
+    ports:
+      - "8888:8888"
+
+    volumes:
+      # Repository — notebooks and scripts
+      - .:/home/jovyan/work
+
+      # Data volumes — set these host paths before running.
+      # All paths below are *examples*; adjust to match your local layout.
+
+      # snATAC pipeline output, QC files, merged objects, AMULET outputs, etc.
+      - ${NPOD_DATA_HOST:-/path/to/your/data}:/data
+
+      # Reference files (hg38 blacklist, promoter BED, chrom.sizes, etc.)
+      # The files in repository reference_files/ are bind-mounted here.
+      - ./reference_files:/reference_files:ro
+
+      # CellRanger-ATAC output directories (one sub-directory per sample)
+      # CellRanger-ATAC is not included in the image (licence restriction).
+      # Mount the binary and/or its outputs here.
+      - ${NPOD_CELLRANGER_HOST:-/path/to/cellranger_outputs}:/cellranger_outputs:ro
+
+    environment:
+      # Override any of these to redirect paths inside the container.
+      NPOD_DATA_DIR: /data
+      NPOD_REF_DIR: /reference_files
+      NPOD_CELLRANGER_DIR: /cellranger_outputs
+      NPOD_PIPELINE_OUT: /data/snatac_pipeline_output
+      NPOD_MULTIPLET_DIR: /data/multiplet_output
+      NPOD_CLEAN_DIR: /data
+      NPOD_SINGLECELL_DIR: /data/singlecell_files
+      NPOD_HVW_FILE: /data/hvws.txt
+      NPOD_FRAG_FILE: /data/merged.atac_fragments.tsv.gz
+      NPOD_AMULET_SNATAC: /data/amulet_atac_removeBCs.txt
+      NPOD_AMULET_MULTIOME: /data/amulet_multiome_removeBCs.txt
+      NPOD_GOOD_BCS: /data/all_atac.barcodes
+      NPOD_PROM_ACC_DIR: /data/peak_calling/FilterATAC_byPromoterAccessibility
+      NPOD_LT_DIR: /data/snATAC_LT_files
+
+    # JupyterLab: open http://localhost:8888 after docker compose up
+    stdin_open: true
+    tty: true
