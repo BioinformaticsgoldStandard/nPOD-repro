@@ -60,7 +60,7 @@ RUN wget -q https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bedGraphToBig
 # micromamba — used to build all three conda environments
 # ---------------------------------------------------------------------------
 ARG MICROMAMBA_VERSION=1.5.3
-RUN wget -qO- https://micromamba.snakepit.net/api/micromamba/linux-64/${MICROMAMBA_VERSION} \
+RUN wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/${MICROMAMBA_VERSION} \
     | tar -xvj -C /usr/local bin/micromamba
 
 ENV MAMBA_ROOT_PREFIX=/opt/conda
@@ -177,6 +177,17 @@ WORKDIR /home/jovyan/work
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Activate py3 in every shell, not only the JupyterLab process.
+# profile.d covers login shells; bash.bashrc covers interactive non-login
+# shells such as `docker exec -it <container> bash`, which never read profile.d.
+# ENV PATH covers commands run without a shell (`docker exec <c> python ...`).
+COPY py3-activate.sh /etc/profile.d/npod-py3.sh
+RUN echo '[ -f /etc/profile.d/npod-py3.sh ] && . /etc/profile.d/npod-py3.sh' >> /etc/bash.bashrc
+# Intentionally redundant with `micromamba activate py3`: in activated shells
+# py3/bin appears twice in PATH, which is harmless. This line is only a safety
+# net for commands run without a shell (`docker exec <container> python ...`).
+ENV PATH=/opt/conda/envs/py3/bin:$PATH
 
 RUN mkdir -p /data /reference_files /cellranger_outputs \
     && chown -R jovyan:jovyan /home/jovyan /data /reference_files /cellranger_outputs

@@ -310,6 +310,14 @@ All R versions in the table above are inferred from the API calls used
 > time, not checked against live package metadata. Re-verify them against the
 > packages actually installed (`sessionInfo()` in the `r4` kernel) during the
 > first real build on Dora.
+>
+> The shell activation of py3 (`/etc/profile.d/npod-py3.sh` sourced from
+> `/etc/bash.bashrc`, plus `ENV PATH`) is based on reasoning from the bash
+> documentation (`man bash`, INVOCATION) and was tested only in a minimal
+> Ubuntu 22.04 image (micromamba + py3 with Python only), not in the full
+> image. Confirm on the first real build that
+> `docker exec -it <container> bash` and `docker exec <container> python`
+> both resolve to `/opt/conda/envs/py3/bin/python`.
 
 ---
 
@@ -320,6 +328,7 @@ nPOD-repro/
 ├── Dockerfile                          Container definition (three envs)
 ├── docker-compose.yml                  Service configuration
 ├── entrypoint.sh                       Starts JupyterLab in the py3 env
+├── py3-activate.sh                     Activates py3 in every container shell
 ├── CLAUDE.md                           Claude Code guidance
 ├── Data_proccessing/
 │   ├── data_preprocessing.md           CellRanger commands (original authors)
