@@ -63,6 +63,11 @@ Three isolated environments are built into the image:
 | `r4` (R 4.1) | R kernel in JupyterLab | `snATAC_03`, `snATAC_04`, `snATAC_05` |
 | `py2` (Python 2.7) | `/usr/local/bin/python2-repro` in terminal | `clean_barcode_multiplets_1.1.py` **only** |
 
+> **py2 implementation note:** Python 2.7.18 is installed from the
+> [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa)
+> rather than a conda environment. `pysam`, `pandas`, and `numpy` are
+> installed via pip. See "Deviations" for the reason.
+
 Select the correct kernel before running each notebook.
 
 ### Peak-call-pipeline environment (standalone — not in this image)
@@ -192,10 +197,10 @@ tabix -p bed /data/merged.atac_fragments.tsv.gz
 
 | Component | Version | Source |
 |---|---|---|
-| Python | 2.7.18 | inferred — last Python 2 release; required by `iteritems()` and `time.clock()` |
-| pysam | 0.15.4 | inferred — last pysam release with Python 2 support |
-| pandas | 0.24.2 | inferred — last pandas with Python 2 support |
-| numpy | 1.16.6 | inferred — last numpy with Python 2 support |
+| Python | 2.7.18 | inferred — last Py2 release; deadsnakes PPA for Ubuntu 22.04 |
+| pysam | 0.15.4 | inferred — last pysam with Py2 support; pip (manylinux2010 wheel) |
+| pandas | 0.24.2 | inferred — last pandas with Py2 support; pip |
+| numpy | 1.16.6 | inferred — last numpy with Py2 support; pip |
 
 ### Bioinformatics tools
 
@@ -344,6 +349,25 @@ nPOD-repro/
 │   └── clean_barcode_multiplets_1.1.py Multiplet removal (Python 2 only)
 └── reference_files/                    hg38 reference files (see README therein)
 ```
+
+---
+
+### Python 2.7 source: deadsnakes PPA instead of conda Anaconda defaults
+
+`conda-forge` and `bioconda` dropped Python 2.7 builds after its January 2020
+end-of-life; `python=2.7.18` is no longer resolvable from those channels.
+The Anaconda `defaults` channel (`pkgs/main`) still carries the build, but its
+Terms of Service require a paid licence for organisations with ≥ 200
+employees/contractors; academic institutions "may qualify for exemptions" —
+a conditional, not a guaranteed right. Because this repository is public and
+can be built by anyone, relying on `defaults` would expose contributors and
+users to an ambiguous licence situation without their knowledge.
+Python 2.7.18 is therefore installed from the
+[deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa),
+which packages upstream CPython releases for Ubuntu without distribution
+restrictions. `pysam 0.15.4`, `pandas 0.24.2`, and `numpy 1.16.6` are
+installed via pip; pysam ships a manylinux2010 pre-built wheel so no C
+compilation is required at image build time.
 
 ---
 

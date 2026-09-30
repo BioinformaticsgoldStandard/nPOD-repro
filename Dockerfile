@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libharfbuzz-dev libfribidi-dev \
         libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
         libhdf5-dev \
-        git parallel pigz tabix python-is-python3 \
+        git parallel pigz tabix python-is-python3 software-properties-common \
         python3 python3-pip python3-venv \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -90,18 +90,24 @@ RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
     && /usr/local/bin/micromamba clean -afy
 
 # ---------------------------------------------------------------------------
-# Python 2.7 environment  (py2 — clean_barcode_multiplets_1.1.py ONLY)
+# Python 2.7  (py2 — clean_barcode_multiplets_1.1.py ONLY)
 # pysam 0.15.4, pandas 0.24.2, numpy 1.16.6: last releases with Py2 support.
+# Sourced from deadsnakes PPA: conda-forge dropped Py2 after EOL; the
+# Anaconda defaults channel ToS restricts use in public repositories.
+# pysam 0.15.4 ships a manylinux2010 wheel — no C compilation required.
 # ---------------------------------------------------------------------------
-RUN /usr/local/bin/micromamba create -n py2 -c conda-forge -c bioconda -y \
-        python=2.7.18 \
-        pysam=0.15.4 \
-        pandas=0.24.2 \
-        numpy=1.16.6 \
-    && /usr/local/bin/micromamba clean -afy
+RUN add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+           python2.7 python2.7-dev python-pip \
+    && python2.7 -m pip install --no-cache-dir \
+           pysam==0.15.4 \
+           pandas==0.24.2 \
+           numpy==1.16.6 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Convenience wrapper so the script can be called as `python2-repro <script>`
-RUN printf '#!/bin/bash\n/opt/conda/envs/py2/bin/python "$@"\n' > /usr/local/bin/python2-repro \
+RUN printf '#!/bin/bash\n/usr/bin/python2.7 "$@"\n' > /usr/local/bin/python2-repro \
     && chmod +x /usr/local/bin/python2-repro
 
 # ---------------------------------------------------------------------------
