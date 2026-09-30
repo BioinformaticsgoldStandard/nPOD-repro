@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libharfbuzz-dev libfribidi-dev \
         libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
         libhdf5-dev \
-        git parallel pigz tabix bgzip \
+        git parallel pigz tabix \
         python3 python3-pip python3-venv \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
