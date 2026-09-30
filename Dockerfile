@@ -40,14 +40,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # samtools 1.17 (not pinned in original; using a recent stable release)
 # ---------------------------------------------------------------------------
 ARG SAMTOOLS_VERSION=1.17
-RUN wget -q https://github.com/samtools/samtools/releases/download/${SAMTOOLS_VERSION}/samtools-${SAMTOOLS_VERSION}.tar.bz2 \
+RUN wget -qL https://github.com/samtools/samtools/releases/download/${SAMTOOLS_VERSION}/samtools-${SAMTOOLS_VERSION}.tar.bz2 \
     && tar xjf samtools-${SAMTOOLS_VERSION}.tar.bz2 \
     && cd samtools-${SAMTOOLS_VERSION} && ./configure --prefix=/usr/local && make -j4 && make install \
     && cd / && rm -rf samtools-${SAMTOOLS_VERSION} samtools-${SAMTOOLS_VERSION}.tar.bz2
 
 # bedtools 2.30.0 (confirmed from call_peaks_environment.yml)
 ARG BEDTOOLS_VERSION=2.30.0
-RUN wget -q https://github.com/arq5x/bedtools2/releases/download/v${BEDTOOLS_VERSION}/bedtools-${BEDTOOLS_VERSION}.tar.gz \
+RUN wget -qL https://github.com/arq5x/bedtools2/releases/download/v${BEDTOOLS_VERSION}/bedtools-${BEDTOOLS_VERSION}.tar.gz \
     && tar xzf bedtools-${BEDTOOLS_VERSION}.tar.gz \
     && cd bedtools2 && make -j4 && cp bin/* /usr/local/bin/ \
     && cd / && rm -rf bedtools2 bedtools-${BEDTOOLS_VERSION}.tar.gz
