@@ -66,8 +66,11 @@ jobs:
           CID=$(docker run -d -p 8888:8888 "$IMAGE":latest)
           trap "docker stop $CID; docker rm $CID" EXIT
           echo "Waiting for JupyterLab on port 8888…"
+          # docker-proxy accepts the connection before Jupyter listens and
+          # returns an empty reply (curl exit 52), which --retry alone does
+          # not retry; --retry-all-errors covers it.
           VERSION=$(curl --silent --fail \
-            --retry 30 --retry-delay 1 --retry-connrefused \
+            --retry 30 --retry-delay 1 --retry-connrefused --retry-all-errors \
             http://localhost:8888/api)
           echo "JupyterLab API: $VERSION"
           echo "Check 0 OK"

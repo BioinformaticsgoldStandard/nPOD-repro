@@ -59,9 +59,15 @@ RUN wget -q https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bedGraphToBig
 # ---------------------------------------------------------------------------
 # micromamba — used to build all three conda environments
 # ---------------------------------------------------------------------------
+# micro.mamba.pm intermittently answers 500 before redirecting to S3. Download
+# to a file with retries on 5xx (retrying into a pipe would append the error
+# bodies to the tarball); a final failure is then a wget error, not bzip2's.
 ARG MICROMAMBA_VERSION=1.5.3
-RUN wget -qO- https://micro.mamba.pm/api/micromamba/linux-64/${MICROMAMBA_VERSION} \
-    | tar -xvj -C /usr/local bin/micromamba
+RUN wget -nv --tries=5 --waitretry=2 --retry-on-http-error=500,502,503,504 \
+        -O /tmp/micromamba.tar.bz2 \
+        https://micro.mamba.pm/api/micromamba/linux-64/${MICROMAMBA_VERSION} \
+    && tar -xvjf /tmp/micromamba.tar.bz2 -C /usr/local bin/micromamba \
+    && rm /tmp/micromamba.tar.bz2
 
 ENV MAMBA_ROOT_PREFIX=/opt/conda
 
@@ -70,6 +76,9 @@ ENV MAMBA_ROOT_PREFIX=/opt/conda
 # Versions confirmed from call_peaks_environment.yml (Python stack only).
 # JupyterLab is included here to serve all notebooks; R uses a separately
 # registered kernel (see r env below).
+# webcolors is pinned to 1.13, the last release supporting Python 3.7:
+# conda-forge's webcolors 24.8.0 declares python >=3.5 but uses the :=
+# operator (3.8+), so JupyterLab fails to import under Python 3.7.
 # ---------------------------------------------------------------------------
 RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         python=3.7.10 \
@@ -87,6 +96,7 @@ RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         leidenalg=0.8.7 \
         macs2=2.2.7.1 \
         jupyterlab \
+        webcolors==1.13 \
     && /usr/local/bin/micromamba clean -afy
 
 # ---------------------------------------------------------------------------
@@ -113,13 +123,18 @@ RUN printf '#!/bin/bash\n/usr/bin/python2.7 "$@"\n' > /usr/local/bin/python2-rep
 # ---------------------------------------------------------------------------
 # R 4.1 environment  (r — snATAC_03/04/05)
 # R 4.1 is the earliest release compatible with Seurat 4.x + Bioc 3.13–3.14.
-# Seurat, Signac, and harmony are installed from CRAN/GitHub because conda
-# packages lag behind; harmony <=1.2 is needed for the HarmonyMatrix() API.
+# Seurat, Signac, and harmony are installed from the CRAN archive because conda
+# packages lag behind. harmony is pinned to 0.1.1: the notebooks call
+# HarmonyMatrix(..., do_pca=FALSE), the native 0.1.x API; since 1.0.0
+# HarmonyMatrix is a deprecated wrapper for RunHarmony and do_pca is ignored.
 # IRkernel is included so R notebooks are selectable in JupyterLab.
 #
 # Matrix is pinned to 1.5-4: it predates the Matrix >= 1.6-2 C-level ABI change
-# that breaks SeuratObject 4.x / Seurat 4.x. conda-forge names it "1.5_4"
+# that breaks SeuratObject <= 4.1.3 / Seurat 4.x. conda-forge names it "1.5_4"
 # (underscore; verified build r41he1ae0d6_0, requires r-base >=4.1,<4.2).
+# Exact match (==): a single = is a prefix match and resolves to 1.5_4.1.
+# r-fs comes prebuilt from conda-forge (with libuv): the CRAN source build
+# needs libuv headers and fails, taking sass/bslib/shiny/plotly/Seurat with it.
 # ---------------------------------------------------------------------------
 ARG R_VERSION=4.1.3
 RUN /usr/local/bin/micromamba create -n r -c conda-forge -c bioconda -y \
@@ -128,7 +143,7 @@ RUN /usr/local/bin/micromamba create -n r -c conda-forge -c bioconda -y \
         r-data.table \
         r-dplyr \
         r-ggplot2 \
-        r-matrix=1.5_4 \
+        r-matrix==1.5_4 \
         r-tibble \
         r-ggpubr \
         r-pheatmap \
@@ -145,28 +160,46 @@ RUN /usr/local/bin/micromamba create -n r -c conda-forge -c bioconda -y \
         bioconductor-s4vectors \
         bioconductor-biobase \
         r-irkernel \
+        r-fs \
     && /usr/local/bin/micromamba clean -afy
 
-# SeuratObject is pinned to 4.1.4 before Seurat so Seurat 4.3.0 doesn't pull
-# SeuratObject 5.x (which requires Matrix >= 1.6-4). upgrade='never' stops
-# remotes from replacing the pinned Matrix while resolving dependencies.
+# SeuratObject is pinned to 4.1.3 before Seurat so Seurat 4.3.0 doesn't pull
+# SeuratObject 5.x (which requires Matrix >= 1.6-4). 4.1.4 is not usable
+# either: it requires Matrix >= 1.6.1, incompatible with the Matrix 1.5-4 pin.
+# 4.1.3 requires Matrix >= 1.5.0 and is the minimum Seurat 4.3.0 accepts.
+# upgrade='never' stops remotes from replacing the pinned Matrix while
+# resolving dependencies.
 # stopifnot() fails the build if Matrix drifted anyway; package_version
 # normalises "1.5-4" to "1.5.4", so the dotted comparison is correct.
-RUN /opt/conda/envs/r/bin/Rscript -e " \
+# remotes only warns when a package fails to install, so the second
+# stopifnot() turns a missing or wrong-version pin into a build failure.
+# The conda compilers named in R's Makeconf (x86_64-conda-linux-gnu-*) ship
+# with r-base in /opt/conda/envs/r/bin, which is not on PATH because the env
+# is never activated; without it every package with compiled code fails
+# with "command not found" (make Error 127).
+# Signac 1.11.0 comes from the CRAN archive like the other pins: its R/, src/
+# and NAMESPACE are identical to GitHub tag 1.11.0, and it avoids
+# install_github's unauthenticated api.github.com calls (60 requests/hour per
+# IP, shared on CI runners; a DNS timeout there failed a local build).
+RUN PATH=/opt/conda/envs/r/bin:$PATH /opt/conda/envs/r/bin/Rscript -e " \
     install.packages('remotes', repos='https://cloud.r-project.org/'); \
-    remotes::install_version('SeuratObject', version='4.1.4', repos='https://cloud.r-project.org/', upgrade='never'); \
+    remotes::install_version('SeuratObject', version='4.1.3', repos='https://cloud.r-project.org/', upgrade='never'); \
     remotes::install_version('Seurat',       version='4.3.0', repos='https://cloud.r-project.org/', upgrade='never'); \
-    remotes::install_version('harmony',      version='1.0',   repos='https://cloud.r-project.org/', upgrade='never'); \
-    remotes::install_github('timoast/signac', ref='v1.11.0', upgrade='never'); \
+    remotes::install_version('harmony',      version='0.1.1', repos='https://cloud.r-project.org/', upgrade='never'); \
+    remotes::install_version('Signac',       version='1.11.0', repos='https://cloud.r-project.org/', upgrade='never'); \
     stopifnot(packageVersion('Matrix') == '1.5.4'); \
+    stopifnot(packageVersion('SeuratObject') == '4.1.3', \
+              packageVersion('Seurat')       == '4.3.0', \
+              packageVersion('harmony')      == '0.1.1', \
+              packageVersion('Signac')       == '1.11.0'); \
     "
 
 # Register the R kernel for JupyterLab.
-# IRkernel::installspec() shells out to `jupyter kernelspec install` internally.
-# /opt/conda/envs/py3/bin is not on PATH during RUN layers, so we pass the full
-# path explicitly via the jupyter= parameter (available since IRkernel 1.1).
-RUN /opt/conda/envs/r/bin/Rscript -e \
-    "IRkernel::installspec(user=FALSE, name='r4', displayname='R 4.1 (nPOD)', jupyter='/opt/conda/envs/py3/bin/jupyter')"
+# IRkernel::installspec() shells out to `jupyter kernelspec install` and finds
+# jupyter on PATH (IRkernel 1.3.2 has no jupyter= argument). py3/bin is not on
+# PATH during RUN layers, so it is prepended for this command only.
+RUN PATH=/opt/conda/envs/py3/bin:$PATH /opt/conda/envs/r/bin/Rscript -e \
+    "IRkernel::installspec(user=FALSE, name='r4', displayname='R 4.1 (nPOD)')"
 
 # ---------------------------------------------------------------------------
 # JupyterLab (served from the py3 env)

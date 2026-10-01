@@ -63,10 +63,19 @@ Three isolated environments are built into the image:
 | `r4` (R 4.1) | R kernel in JupyterLab | `snATAC_03`, `snATAC_04`, `snATAC_05` |
 | `py2` (Python 2.7) | `/usr/local/bin/python2-repro` in terminal | `clean_barcode_multiplets_1.1.py` **only** |
 
+> **⚠ Do not run `Rscript` or `R` from a terminal with py3 active** (the
+> default in every container shell, including the JupyterLab terminal).
+> They resolve to an R 4.0.5 pulled into the py3 env by macs2, without
+> Seurat or Signac.  **Always use the `r4` kernel in JupyterLab for R
+> commands.**  If a script must be run from a terminal, call
+> `/opt/conda/envs/r/bin/Rscript` explicitly.  See "Deviations → Build
+> environment → Container runtime".
+
 > **py2 implementation note:** Python 2.7.18 is installed from the
 > [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa)
 > rather than a conda environment. `pysam`, `pandas`, and `numpy` are
-> installed via pip. See "Deviations" for the reason.
+> installed via pip. See "Deviations → Build environment →
+> Package availability" for the reason.
 
 Select the correct kernel before running each notebook.
 
@@ -219,10 +228,10 @@ tabix -p bed /data/merged.atac_fragments.tsv.gz
 |---|---|---|
 | R | 4.1.3 | inferred — minimum compatible with Seurat 4 + Bioc 3.13 |
 | Seurat | 4.3.0 | inferred — `CreateChromatinAssay` / `CreateDimReducObject` APIs match 4.x; Seurat 5 broke these |
-| SeuratObject | 4.1.4 | inferred — pinned so Seurat 4.3.0 does not pull SeuratObject 5.x (requires Matrix ≥ 1.6-4) |
-| Matrix | 1.5-4 | inferred — predates the Matrix ≥ 1.6-2 ABI change that breaks SeuratObject 4.x; conda-forge build `1.5_4` for R 4.1 verified to exist |
-| Signac | 1.11.0 | inferred — `CreateChromatinAssay()` is Signac 1.x constructor; Signac 2.0 deprecated it |
-| harmony | 1.0 | inferred — `HarmonyMatrix()` direct call; function restructured in 1.2+ |
+| SeuratObject | 4.1.3 | inferred — pinned so Seurat 4.3.0 does not pull SeuratObject 5.x (requires Matrix ≥ 1.6-4). 4.1.4 rejected: it requires Matrix ≥ 1.6.1, incompatible with the Matrix 1.5-4 pin chosen for the Seurat 4.x ABI. 4.1.3 requires Matrix ≥ 1.5.0 and is the minimum Seurat 4.3.0 accepts |
+| Matrix | 1.5-4 | inferred — predates the Matrix ≥ 1.6-2 ABI change that breaks SeuratObject ≤ 4.1.3; conda-forge build `1.5_4` for R 4.1 verified to exist, pinned with `==` (a single `=` resolves to `1.5_4.1`) |
+| Signac | 1.11.0 | inferred — `CreateChromatinAssay()` is Signac 1.x constructor; Signac 2.0 deprecated it. Installed from the CRAN archive (code identical to GitHub tag `1.11.0`) |
+| harmony | 0.1.1 | inferred — `HarmonyMatrix(..., do_pca=FALSE)` is the 0.1.x API; 1.0.0 made it a deprecated wrapper for `RunHarmony()` and removed `do_pca`. 0.1.1 over 0.1.0 for its Armadillo `pow` fix |
 | EnsDb.Hsapiens.v86 | Bioc 3.14 | inferred — GRCh38 annotation, Bioc 3.14 compatible with R 4.1 |
 | hdf5r, dplyr, ggplot2, data.table, ggpubr, cowplot, pheatmap, gplots, tictoc, tibble, scater, sctransform, reticulate, BiocParallel, GenomeInfoDb | unpinned | inferred — versions compatible with Seurat 4 + Bioc 3.14 |
 
@@ -230,7 +239,14 @@ tabix -p bed /data/merged.atac_fragments.tsv.gz
 
 ## Deviations from the original analysis
 
-### CellRanger-ATAC version
+Two kinds of deviation are recorded here: changes to the analysis inputs and
+code, and changes to the software environment needed for the image to build
+today.  The second group was found by failing builds; each item was diagnosed
+on its own before being fixed.
+
+### Analysis inputs and code
+
+#### CellRanger-ATAC version
 
 The paper (Methods) states v1.1.0.  The repository's `data_preprocessing.md`
 states v2.0.0 — an undocumented upgrade.  This reproduction uses **v2.2.0**
@@ -242,20 +258,20 @@ Despite the name, this is the correct genome reference for CellRanger-ATAC 2.x,
 confirmed against the 10x Genomics download page for the 2.2.0 release.
 The older `refdata-cellranger-atac-GRCh38-1.2.0` package is incompatible with v2.x.
 
-### Hardcoded paths — scripts (patched, repro branch)
+#### Hardcoded paths — scripts (patched, repro branch)
 
 `scripts/snATAC_pipeline_10X.py`: five CLI default arguments pointed to
 hg19 files on the original developer's workstation.  Updated to `/reference_files/`
 (hg38).  The `--picard` argument is retained for CLI compatibility but is
-**dead code**: `remove_duplicate_reads()` uses only samtools; picard is
-never called and is not installed in the image.
+**dead code**: `remove_duplicate_reads()` uses only samtools for duplicate
+marking and removal; picard is never called and is not installed in the image.
 
 `scripts/Josh_10XPipeline_withPeaks_justLFM_UCSCcoordsShortList.py`: the
 promoter windows file path was a string literal inside `generate_matrix()`,
 making it impossible to override without editing source.  Moved to `--windows-file`
 CLI argument with the original path as the documented default.
 
-### Hardcoded paths — notebooks (patched, repro branch)
+#### Hardcoded paths — notebooks (patched, repro branch)
 
 All `/data/`, `/reference_files/`, and `/nfs/lab/` absolute paths in
 `snATAC_01` through `snATAC_05` have been replaced with environment variables
@@ -264,14 +280,14 @@ The original paths are kept as fallback defaults.  The container mounts data
 at `/data` and reference files at `/reference_files` by default, so
 unmodified notebooks work without setting any variables.
 
-### Peak-call-pipeline hardcoded scripts
+#### Peak-call-pipeline hardcoded scripts
 
 `mergePeaks.sh` and `merge_tagAligns.R` contain hardcoded NFS paths and
 sample lists.  The pipeline README explicitly flags both as "hard coded —
 be sure to adapt it to your needs."  These must be edited before use; they
 are not patched in this repository because they live in an external repo.
 
-### Unused imports removed (repro branch)
+#### Unused imports removed (repro branch)
 
 `snATAC_03`: `library(EnsDb.Mmusculus.v79)` — mouse annotation, human study;
 confirmed not called anywhere in the notebook.
@@ -281,14 +297,7 @@ hg38 analysis; confirmed not called anywhere.  `library(EnsDb.Mmusculus.v79)` �
 same as above.  Removing these avoids installing two unnecessary Bioconductor
 packages (one for the wrong genome build, one for the wrong species).
 
-### Picard
-
-The `--picard` argument in `snATAC_pipeline_10X.py` is present in the CLI
-parser but is dead code upstream: the `remove_duplicate_reads()` function
-uses only samtools for duplicate marking and removal; picard is never called.
-Picard is not installed in the image.
-
-### Notebook 04 / 05 execution order
+#### Notebook 04 / 05 execution order
 
 The original `data_processing.md` documents the order as 03 → 04 → 05.
 This is incorrect: `snATAC_04` reads `snATAC_Lt_filt05AcinarSum.rds`, which
@@ -296,7 +305,7 @@ is an output of `snATAC_05`.  The actual required order is
 **03 → 05 (label transfer) → 04 (promoter doublet removal) → 05 (final acinar filter)**.
 Both notebooks contain an execution-order warning cell at the top.
 
-### AMULET support files
+#### AMULET support files
 
 `human_autosomes.txt` and `blacklist_repeats_segdups_rmsk_hg38.bed`
 (AMULET's `RepeatFilterFiles/`) are bundled with the AMULET v1.1 distribution
@@ -304,25 +313,118 @@ and are not in this repository's `reference_files/`.  The `hg38-blacklist.v3.bed
 in `reference_files/` is the ENCODE blacklist used by `snATAC_pipeline_10X.py` —
 it is a different file from the AMULET-specific repeat/segdup filter.
 
-### No R version pins in original notebooks
+### Build environment
 
-No R package versions are specified anywhere in the original notebooks.
-All R versions in the table above are inferred from the API calls used
-(see "confirmed vs. inferred" column).
+#### Downloads
 
-> **Re-verify on first build:** the R / Seurat / SeuratObject / Signac / Matrix
-> compatibility claims above were inferred from general knowledge at authoring
-> time, not checked against live package metadata. Re-verify them against the
-> packages actually installed (`sessionInfo()` in the `r4` kernel) during the
-> first real build on Dora.
->
-> The shell activation of py3 (`/etc/profile.d/npod-py3.sh` sourced from
-> `/etc/bash.bashrc`, plus `ENV PATH`) is based on reasoning from the bash
-> documentation (`man bash`, INVOCATION) and was tested only in a minimal
-> Ubuntu 22.04 image (micromamba + py3 with Python only), not in the full
-> image. Confirm on the first real build that
-> `docker exec -it <container> bash` and `docker exec <container> python`
-> both resolve to `/opt/conda/envs/py3/bin/python`.
+- **GitHub release tarballs (samtools, bedtools)** are fetched with `wget -qL`,
+  so redirects to GitHub's download host are followed.  This was added
+  defensively while diagnosing the bedtools build failure; it was not the
+  cause of that failure (see `python` below).
+- **micromamba** is downloaded from `micro.mamba.pm`, which intermittently
+  answers HTTP 500 before redirecting to its S3 storage.  The binary is
+  downloaded to a file with `wget --tries=5 --retry-on-http-error=500,502,503,504`
+  and then extracted; previously `wget -qO- | tar -xj` passed the error body
+  to bzip2 and failed with a misleading "compressed file ends unexpectedly".
+- **Signac** 1.11.0 is installed from the CRAN archive, not from GitHub.  The
+  previous `install_github('timoast/signac', ref='v1.11.0')` could not work:
+  the tags have no `v` prefix and the repository moved to `stuart-lab/signac`.
+  Even with the right tag, `install_github` calls `api.github.com` without
+  authentication (60 requests/hour per IP, shared on CI runners), and a DNS
+  timeout on that host failed a local build.  The CRAN tarball's `R/`, `src/`
+  and `NAMESPACE` are identical to GitHub tag `1.11.0`.
+- **CRAN downloads** use R's default 60 s timeout.  A stalled download only
+  produces a warning from `remotes`, so the R layer ends with `stopifnot()`
+  checks on the pinned versions: a transient download failure fails the build
+  instead of leaving a package silently missing.
+
+#### Package availability
+
+- **`bgzip`** is not a separate apt package on Ubuntu 22.04; the binary comes
+  with `tabix`.
+- **`/usr/bin/python`** does not exist on Ubuntu 22.04.  The bedtools 2.30.0
+  Makefile calls unversioned `python` to generate its legacy wrappers, so
+  `python-is-python3` is installed.
+- **Python 2.7** for `clean_barcode_multiplets_1.1.py` (deadsnakes PPA
+  instead of conda / Anaconda `defaults`):
+  `conda-forge` and `bioconda` dropped Python 2.7 builds after its January 2020
+  end-of-life; `python=2.7.18` is no longer resolvable from those channels.
+  The Anaconda `defaults` channel (`pkgs/main`) still carries the build, but its
+  Terms of Service require a paid licence for organisations with ≥ 200
+  employees/contractors; academic institutions "may qualify for exemptions" —
+  a conditional, not a guaranteed right. Because this repository is public and
+  can be built by anyone, relying on `defaults` would expose contributors and
+  users to an ambiguous licence situation without their knowledge.
+  Python 2.7.18 is therefore installed from the
+  [deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa),
+  which packages upstream CPython releases for Ubuntu without distribution
+  restrictions. `pysam 0.15.4`, `pandas 0.24.2`, and `numpy 1.16.6` are
+  installed via pip; pysam ships a manylinux2010 pre-built wheel so no C
+  compilation is required at image build time.
+- **Seurat, SeuratObject, harmony and Signac** are installed from the CRAN archive:
+  conda-forge has no R 4.1 build of SeuratObject 4.1.4 and no build at all of
+  Signac 1.11.0 or harmony 0.1.1.
+- **harmony**: the previously pinned version `1.0` was never released on CRAN
+  (the archive goes 0.1.1 → 1.0.1).  0.1.1 is used; see the R stack table.
+- **fs** (dependency of sass → bslib → shiny/rmarkdown → Seurat): the CRAN
+  source build needs libuv headers.  `r-fs` is installed prebuilt from
+  conda-forge instead.
+- **webcolors** is pinned to 1.13 in the py3 env.  conda-forge's 24.8.0
+  declares `python >=3.5` but uses the `:=` operator (Python 3.8+), which
+  makes JupyterLab fail to import under Python 3.7.
+
+#### R environment compatibility
+
+- **Matrix** is pinned with `==1.5_4`.  In conda a single `=` is a prefix
+  match and resolved to `1.5_4.1`.
+- **SeuratObject 4.1.3, not 4.1.4**: 4.1.4 requires Matrix ≥ 1.6.1, which
+  conflicts with the Matrix 1.5-4 pin.  4.1.3 requires Matrix ≥ 1.5.0 and is
+  the minimum Seurat 4.3.0 accepts (Signac 1.11.0 needs ≥ 4.0.0).
+- **Compilers**: r-base's `Makeconf` calls `x86_64-conda-linux-gnu-*`.  These
+  compilers ship with r-base in `/opt/conda/envs/r/bin`, which is not on
+  `PATH` because the env is never activated during the build.  The install
+  layer prepends it; without it, every package with compiled code fails.
+- **IRkernel** 1.3.2 `installspec()` has no `jupyter=` argument and looks up
+  `jupyter` on `PATH`, so the py3 bin directory is prepended for that command.
+- **No R version pins in the original notebooks.**  All R versions in the
+  table above are inferred from the API calls used (see "confirmed vs.
+  inferred" column).
+
+> **Verification status:** the version constraints between Seurat,
+> SeuratObject, Signac, harmony and Matrix have been checked against each
+> package's DESCRIPTION file, and the full stack installs and loads in a
+> clean build (`library(Seurat); library(Signac)`; `HarmonyMatrix(...,
+> do_pca=FALSE)` runs).  The notebooks themselves have not yet been run end
+> to end on real data in the image; confirm with `sessionInfo()` in the `r4`
+> kernel during the first real run on Dora.
+
+#### Container runtime
+
+- **`entrypoint.sh` and `set -u`**: bioconda's macs2 depends on r-base,
+  so the py3 env contains r-base 4.0.5 and its compiler activation scripts.
+  MACS2 never calls R itself; it only writes `<name>_model.r` for the user to
+  run with `Rscript`.  Those activation scripts read unset variables (e.g.
+  `ADDR2LINE`), so `micromamba activate py3` runs with `set +u`.
+- **JupyterLab readiness check (CI, Check 0)**: docker-proxy accepts the
+  connection on the published port before JupyterLab listens and returns an
+  empty reply (curl exit 52), which `--retry` does not retry.  The check uses
+  `--retry-all-errors`.
+- **`jupyter_server_ydoc` warning**: at startup JupyterLab logs that the
+  real-time collaboration extension cannot be loaded (it needs
+  `typing.Literal`, Python 3.8+).  The warning is harmless; JupyterLab and both
+  kernels work.
+- **py3 activation in shells**: `py3-activate.sh` is installed as
+  `/etc/profile.d/npod-py3.sh` (login shells) and sourced from
+  `/etc/bash.bashrc` (interactive non-login shells, which skip profile.d);
+  `ENV PATH` covers commands run without a shell.  Verified on the final image
+  as `jovyan`: `docker exec <c> python`, `docker exec -it <c> bash`,
+  `bash -lc` and `bash -lic` all resolve `python` to
+  `/opt/conda/envs/py3/bin/python`.
+- **`R`/`Rscript` in a terminal are not the analysis R.**  In any activated
+  shell they resolve to the py3 env's R 4.0.5 (pulled in by macs2, see
+  above), which has no Seurat or Signac.  The `r4` Jupyter kernel is not
+  affected (it runs `/opt/conda/envs/r/lib/R/bin/R`, R 4.1.3).  To run R
+  scripts from a terminal, call `/opt/conda/envs/r/bin/Rscript` explicitly.
 
 ---
 
@@ -349,25 +451,6 @@ nPOD-repro/
 │   └── clean_barcode_multiplets_1.1.py Multiplet removal (Python 2 only)
 └── reference_files/                    hg38 reference files (see README therein)
 ```
-
----
-
-### Python 2.7 source: deadsnakes PPA instead of conda Anaconda defaults
-
-`conda-forge` and `bioconda` dropped Python 2.7 builds after its January 2020
-end-of-life; `python=2.7.18` is no longer resolvable from those channels.
-The Anaconda `defaults` channel (`pkgs/main`) still carries the build, but its
-Terms of Service require a paid licence for organisations with ≥ 200
-employees/contractors; academic institutions "may qualify for exemptions" —
-a conditional, not a guaranteed right. Because this repository is public and
-can be built by anyone, relying on `defaults` would expose contributors and
-users to an ambiguous licence situation without their knowledge.
-Python 2.7.18 is therefore installed from the
-[deadsnakes PPA](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa),
-which packages upstream CPython releases for Ubuntu without distribution
-restrictions. `pysam 0.15.4`, `pandas 0.24.2`, and `numpy 1.16.6` are
-installed via pip; pysam ships a manylinux2010 pre-built wheel so no C
-compilation is required at image build time.
 
 ---
 
