@@ -12,6 +12,22 @@ set +u
 micromamba activate py3
 set -u
 
+# Spawned by JupyterHub: the hub always sets JUPYTERHUB_API_TOKEN.
+if [ -n "${JUPYTERHUB_API_TOKEN:-}" ]; then
+    # Some spawners (e.g. JupyDo) run the container as root;
+    # jupyterhub-singleuser refuses root without --allow-root.
+    if [ "$(id -u)" -eq 0 ]; then
+        set -- "$@" --allow-root
+    fi
+    exec "$@"
+fi
+
+# Standalone: drop the image's default CMD, keep any other args as extra
+# JupyterLab flags.
+if [ "${1:-}" = "jupyterhub-singleuser" ]; then
+    shift
+fi
+
 exec jupyter lab \
     --ip=0.0.0.0 \
     --port=8888 \

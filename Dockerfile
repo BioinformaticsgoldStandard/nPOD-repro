@@ -79,6 +79,15 @@ ENV MAMBA_ROOT_PREFIX=/opt/conda
 # webcolors is pinned to 1.13, the last release supporting Python 3.7:
 # conda-forge's webcolors 24.8.0 declares python >=3.5 but uses the :=
 # operator (3.8+), so JupyterLab fails to import under Python 3.7.
+# jupyterhub provides jupyterhub-singleuser for DockerSpawner-managed use
+# (e.g. JupyDo). Unpinned: JupyDo installs jupyterhub unpinned too, so there
+# is no fixed version to match. Python 3.7 caps it at 4.1.x (5.x requires
+# Python >= 3.8), while an unpinned hub built today runs 5.x.
+# alembic and mako (jupyterhub dependencies) are pinned for the same reason
+# as webcolors: conda-forge's alembic 1.13.0/1.13.1 (build 0) and mako 1.3.x
+# declare python >=3.7 but need 3.8 (typing.Protocol, importlib.metadata), so
+# jupyterhub-singleuser fails to import. 1.12.1 and 1.2.4 are the last
+# releases supporting Python 3.7 (PyPI requires_python).
 # ---------------------------------------------------------------------------
 RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         python=3.7.10 \
@@ -96,6 +105,9 @@ RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         leidenalg=0.8.7 \
         macs2=2.2.7.1 \
         jupyterlab \
+        jupyterhub \
+        alembic==1.12.1 \
+        mako==1.2.4 \
         webcolors==1.13 \
     && /usr/local/bin/micromamba clean -afy
 
@@ -234,3 +246,6 @@ RUN mkdir -p /data /reference_files /cellranger_outputs \
 USER jovyan
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# DockerSpawner with no Spawner.cmd uses the image CMD; without one the spawn
+# fails. entrypoint.sh drops this word in standalone use.
+CMD ["jupyterhub-singleuser"]
