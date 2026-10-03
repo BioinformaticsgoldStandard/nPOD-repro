@@ -56,8 +56,16 @@ Open JupyterLab at <http://localhost:8888>.  The repository is mounted at
 > DockerSpawner), but its `jupyterhub-singleuser` is **4.1.6**: Python 3.7
 > caps jupyterhub at 4.1.x.  A hub installed unpinned today runs **5.x**
 > (5.5.2 as of 2026-10).  We cannot fix this from inside the image; it depends
-> on the hub's version.  See "JupyterHub/DockerSpawner compatibility" under
-> Deviations.
+> on the hub's version.
+>
+> **Tested 2026-10-03 with a real JupyDo hub (jupyterhub 5.5.2, dockerspawner
+> 14.0.0): the spawn works.**  At runtime the hub logs
+> `jupyterhub version 5.5.2 != jupyterhub-singleuser version 4.1.6. This could
+> cause failure to authenticate and result in redirect loops!`.  With this
+> pair of versions, however, the OAuth login completed and JupyterLab was
+> reachable (4.5 s startup).  The risk remains for versions further apart
+> (the warning exists for a reason), but this test did not hit it.  See
+> "JupyterHub/DockerSpawner compatibility" under Deviations.
 
 ---
 
@@ -459,6 +467,18 @@ use (`docker compose up`) is unchanged.
   moving py3 off Python 3.7 or pinning the hub to 4.x, and the hub is not
   under this repository's control.  If spawning fails with a hub/single-user
   protocol error, this is the first thing to check.
+- **Real spawn test (2026-10-03).**  Local JupyDo hub (jupyterhub 5.5.2,
+  dockerspawner 14.0.0), image
+  `ghcr.io/bioinformaticsgoldstandard/npod-repro:latest` (digest
+  `sha256:962c9e4b…`) entered in the custom-image field.  The spawn
+  succeeded (`User limo took 4.512 seconds to start`), the OAuth callback
+  completed and JupyterLab was reachable, despite the hub's version-mismatch
+  warning quoted above.  Also confirmed in the spawned container:
+  - it runs as `root` (`whoami` = root), and `JUPYTERHUB_API_TOKEN` is set;
+  - `entrypoint.sh` took the JupyterHub branch, and PID 1 is
+    `jupyterhub-singleuser --allow-root`;
+  - `post_start_cmd` failed with `sh: 1: sudo: not found`, which the hub
+    logged as a warning without blocking the spawn.
 - **Image `CMD ["jupyterhub-singleuser"]`.**  When `Spawner.cmd` is unset,
   DockerSpawner uses the image's `CMD` (`get_command()` in
   `dockerspawner.py`).  An image with no `CMD` fails to spawn.
