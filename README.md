@@ -51,21 +51,10 @@ docker compose up -d
 Open JupyterLab at <http://localhost:8888>.  The repository is mounted at
 `/home/jovyan/work`.
 
-> **Known limitation — JupyterHub version mismatch.**  The image can also run
-> as a JupyterHub single-user server (e.g. spawned by JupyDo via
-> DockerSpawner), but its `jupyterhub-singleuser` is **4.1.6**: Python 3.7
-> caps jupyterhub at 4.1.x.  A hub installed unpinned today runs **5.x**
-> (5.5.2 as of 2026-10).  We cannot fix this from inside the image; it depends
-> on the hub's version.
->
-> **Tested 2026-10-03 with a real JupyDo hub (jupyterhub 5.5.2, dockerspawner
-> 14.0.0): the spawn works.**  At runtime the hub logs
-> `jupyterhub version 5.5.2 != jupyterhub-singleuser version 4.1.6. This could
-> cause failure to authenticate and result in redirect loops!`.  With this
-> pair of versions, however, the OAuth login completed and JupyterLab was
-> reachable (4.5 s startup).  The risk remains for versions further apart
-> (the warning exists for a reason), but this test did not hit it.  See
-> "JupyterHub/DockerSpawner compatibility" under Deviations.
+> **JupyterHub.**  The image can also run as a JupyterHub single-user server
+> (e.g. spawned by JupyDo via DockerSpawner).  `jupyterhub-singleuser` lives
+> in its own `jhub` environment, pinned to **5.5.0** to match the target hub.
+> See "JupyterHub/DockerSpawner compatibility" under Deviations.
 
 ---
 
@@ -78,6 +67,11 @@ Three isolated environments are built into the image:
 | `py3` (Python 3.7) | JupyterLab default | `snATAC_01`, `snATAC_02`, pipeline scripts |
 | `r4` (R 4.1) | R kernel in JupyterLab | `snATAC_03`, `snATAC_04`, `snATAC_05` |
 | `py2` (Python 2.7) | `/usr/local/bin/python2-repro` in terminal | `clean_barcode_multiplets_1.1.py` **only** |
+
+A fourth environment, `jhub` (Python 3.11), holds only
+`jupyterhub-singleuser` and the JupyterLab it serves under JupyterHub.  It
+has no kernel of its own.  See "Deviations → Build environment →
+JupyterHub/DockerSpawner compatibility".
 
 > **⚠ Do not run `Rscript` or `R` from a terminal with py3 active** (the
 > default in every container shell, including the JupyterLab terminal).
@@ -448,44 +442,66 @@ The image also runs as a JupyterHub single-user server, as spawned by
 [JupyDo](https://github.com/Vehx35/JupyDo) through DockerSpawner.  Standalone
 use (`docker compose up`) is unchanged.
 
-- **jupyterhub is not pinned.**  JupyDo's `Dockerfile.jupyterhub` installs
-  jupyterhub unpinned, so there is no fixed version to match.  In the py3 env
-  (Python 3.7.10) the solver picks jupyterhub 4.1.6, the last release for
-  Python 3.7 (5.x requires Python ≥ 3.8).  Verified with a `micromamba create
-  --dry-run` of the full py3 spec.  The addition is purely additive: no
-  existing py3 package changes version.
-- **alembic 1.12.1 and mako 1.2.4 are pinned** (jupyterhub dependencies).
-  conda-forge's alembic 1.13.0/1.13.1 (build 0) and mako 1.3.x declare
-  `python >=3.7`, but they use `typing.Protocol` and `importlib.metadata`
-  (Python 3.8+), so `jupyterhub-singleuser` failed to import.  Upstream
-  (PyPI) already requires 3.8 for these releases.  1.12.1 and 1.2.4 are the
-  last releases supporting 3.7.  Of the 20 packages jupyterhub adds, these
-  are the only two whose PyPI `requires_python` excludes 3.7.
-- **Known limitation: hub/single-user version mismatch.**  An unpinned hub
-  built today runs jupyterhub 5.x, so a JupyDo hub (5.x) talks to our 4.1.6
-  single-user server.  This mismatch is structural.  Removing it would mean
-  moving py3 off Python 3.7 or pinning the hub to 4.x, and the hub is not
-  under this repository's control.  If spawning fails with a hub/single-user
-  protocol error, this is the first thing to check.
-- **Real spawn test (2026-10-03).**  Local JupyDo hub (jupyterhub 5.5.2,
-  dockerspawner 14.0.0), image
-  `ghcr.io/bioinformaticsgoldstandard/npod-repro:latest` (digest
-  `sha256:962c9e4b…`) entered in the custom-image field.  The spawn
-  succeeded (`User limo took 4.512 seconds to start`), the OAuth callback
-  completed and JupyterLab was reachable, despite the hub's version-mismatch
-  warning quoted above.  Also confirmed in the spawned container:
+- **Dedicated `jhub` environment, jupyterhub pinned to 5.5.0.**
+  `jupyterhub-singleuser` runs from its own micromamba env (Python 3.11),
+  separate from py3.  It used to live in py3, where Python 3.7 capped
+  jupyterhub at 4.1.6 (5.x requires Python ≥ 3.8; conda-forge's 5.5.0 build
+  requires ≥ 3.10), so 5.x hubs logged a hub/single-user version mismatch.
+  A separate env removes that ceiling.  The pin is exact: 5.5.0 is the
+  version reported by the target hub (Dora, `/hub/api`).  Only
+  `jupyterhub-base` is installed: the full `jupyterhub` package adds nodejs
+  and configurable-http-proxy, which only the hub needs.  If the hub is
+  upgraded, bump this pin to match.
+- **py3 no longer contains jupyterhub.**  The jupyterhub, alembic 1.12.1 and
+  mako 1.2.4 pins existed only to fit jupyterhub into Python 3.7 and are
+  gone.  A `micromamba create --dry-run` of the py3 spec with and without
+  them differs only by the 20 packages of jupyterhub's dependency tree; no
+  other py3 package changes version or build.
+- **Two JupyterLab versions.**  Standalone (`docker compose up`) serves
+  JupyterLab 3.6 from py3, as before.  Under JupyterHub, Lab 4 is served from
+  the jhub env, because `jupyterhub-singleuser` loads Lab from its own env.
+  Notebooks run on the same kernels either way.
+- **Kernels are registered in `/usr/local/share/jupyter/kernels`**, which
+  every env's Jupyter searches, so py3 and jhub see the same `python3` and
+  `r4`.  By default each env's Jupyter only finds kernelspecs inside its own
+  prefix plus the system paths.  py3's `python3` kernelspec (from its
+  ipykernel package) is in the py3 prefix, so jhub cannot see it.  jhub's
+  jupyterlab pulls in ipykernel, whose own `python3` kernelspec (jhub's
+  Python 3.11, without scanpy) would then answer to the kernel name the
+  Python notebooks ask for: a silent wrong-interpreter failure.  The build
+  removes jhub's `python3` kernelspec and registers py3's system-wide.  CI
+  Check 2 now checks each kernel's interpreter from both py3 and jhub, not
+  just the kernel names.
+- **Real spawn test (2026-10-03, before the jhub env).**  A local JupyDo hub
+  (jupyterhub 5.5.2, dockerspawner 14.0.0) spawned the then-current image
+  (single-user 4.1.6) despite the version-mismatch warning.  It also
+  confirmed:
   - it runs as `root` (`whoami` = root), and `JUPYTERHUB_API_TOKEN` is set;
-  - `entrypoint.sh` took the JupyterHub branch, and PID 1 is
-    `jupyterhub-singleuser --allow-root`;
+  - `entrypoint.sh` took the JupyterHub branch;
   - `post_start_cmd` failed with `sh: 1: sudo: not found`, which the hub
     logged as a warning without blocking the spawn.
+- **Real spawn test (2026-10-04, jhub env).**  Local JupyDo hub with
+  jupyterhub pinned to 5.5.0 (same `/hub/api` version as Dora; dockerspawner
+  14.0.0), local build of this image entered in the custom-image field.  The
+  spawn was ready in 4.1 s and the OAuth handshake completed into JupyterLab.
+  The hub logged `jupyterhub and jupyterhub-singleuser both on version 5.5.0`,
+  with no version-mismatch warning.  In the spawned container:
+  - PID 1 is `/opt/conda/envs/jhub/bin/jupyterhub-singleuser --allow-root`,
+    running as `root`;
+  - `/api/kernelspecs` through the hub's proxy lists `python3` (py3's
+    interpreter, default) and `r4`; kernels started through the server run
+    `/opt/conda/envs/py3/bin/python` and `/opt/conda/envs/r/lib/R`;
+  - `post_start_cmd` fails with `sudo: not found` as before, without
+    blocking the spawn.
 - **Image `CMD ["jupyterhub-singleuser"]`.**  When `Spawner.cmd` is unset,
   DockerSpawner uses the image's `CMD` (`get_command()` in
   `dockerspawner.py`).  An image with no `CMD` fails to spawn.
 - **`entrypoint.sh` branches on `JUPYTERHUB_API_TOKEN`**, which the hub
   always sets and standalone runs never do.  If it is set, the script execs
-  the spawner's command and adds `--allow-root` when running as UID 0
-  (JupyDo starts containers as `root`, and `jupyterhub-singleuser` refuses
+  the spawner's command, with `jupyterhub-singleuser` resolved to
+  `/opt/conda/envs/jhub/bin/jupyterhub-singleuser` (an absolute path, so py3
+  stays first on `PATH` for terminals), and adds `--allow-root` when running
+  as UID 0 (JupyDo starts containers as `root`, and `jupyterhub-singleuser` refuses
   root without it).  Otherwise it drops the default `jupyterhub-singleuser`
   argument and starts JupyterLab as before, passing any other arguments on
   as JupyterLab flags.  Branching on "were any arguments passed?" was
@@ -502,9 +518,9 @@ use (`docker compose up`) is unchanged.
 
 ```
 nPOD-repro/
-├── Dockerfile                          Container definition (three envs)
+├── Dockerfile                          Container definition (four envs)
 ├── docker-compose.yml                  Service configuration
-├── entrypoint.sh                       Starts JupyterLab (or jupyterhub-singleuser under JupyterHub) in the py3 env
+├── entrypoint.sh                       Starts JupyterLab (py3 env), or jupyterhub-singleuser (jhub env) under JupyterHub
 ├── py3-activate.sh                     Activates py3 in every container shell
 ├── Data_proccessing/
 │   ├── data_preprocessing.md           CellRanger commands (original authors)

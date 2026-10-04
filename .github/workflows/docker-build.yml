@@ -78,17 +78,24 @@ jobs:
       - name: "Check 1: container starts"
         run: docker run --rm --entrypoint echo "$IMAGE":latest "container starts OK"
 
-      - name: "Check 2: Jupyter kernels registered (python3 + r4)"
+      # Run from both Jupyter installations (py3: standalone, jhub: under
+      # JupyterHub). Checking names alone is not enough: jhub ships its own
+      # python3 kernelspec, which would shadow py3's under the same name.
+      - name: "Check 2: Jupyter kernels registered (python3 + r4) in py3 and jhub"
         run: |
-          output=$(docker run --rm \
-            --entrypoint /opt/conda/envs/py3/bin/jupyter \
-            "$IMAGE":latest kernelspec list)
-          echo "$output"
-          echo "$output" | grep -q 'python3' \
-            || { echo "FAIL: python3 kernel not listed"; exit 1; }
-          echo "$output" | grep -q 'r4' \
-            || { echo "FAIL: r4 kernel not listed"; exit 1; }
-          echo "Both kernels present"
+          for env in py3 jhub; do
+            output=$(docker run --rm \
+              --entrypoint /opt/conda/envs/$env/bin/jupyter \
+              "$IMAGE":latest kernelspec list --json)
+            echo "$env: $output"
+            echo "$output" | python3 -c '
+          import json, sys
+          specs = json.load(sys.stdin)["kernelspecs"]
+          assert specs["python3"]["spec"]["argv"][0] == "/opt/conda/envs/py3/bin/python", "python3 is not the py3 env"
+          assert specs["r4"]["spec"]["argv"][0] == "/opt/conda/envs/r/lib/R/bin/R", "r4 is not the r env"
+          ' || { echo "FAIL: wrong or missing kernel in $env"; exit 1; }
+          done
+          echo "Both kernels present and correct in py3 and jhub"
 
       - name: "Check 3: R stack — Seurat, Signac, Matrix 1.5.4"
         run: |

@@ -14,6 +14,13 @@ set -u
 
 # Spawned by JupyterHub: the hub always sets JUPYTERHUB_API_TOKEN.
 if [ -n "${JUPYTERHUB_API_TOKEN:-}" ]; then
+    # jupyterhub-singleuser lives in the dedicated jhub env (pinned to the
+    # hub's version), not in py3. Absolute path rather than PATH, so py3 stays
+    # first on PATH for terminals.
+    if [ "${1:-}" = "jupyterhub-singleuser" ]; then
+        shift
+        set -- /opt/conda/envs/jhub/bin/jupyterhub-singleuser "$@"
+    fi
     # Some spawners (e.g. JupyDo) run the container as root;
     # jupyterhub-singleuser refuses root without --allow-root.
     if [ "$(id -u)" -eq 0 ]; then

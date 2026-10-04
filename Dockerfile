@@ -1,9 +1,10 @@
 # nPOD-repro — reproducible snATAC-seq analysis environment
 #
-# Three isolated environments in one image:
+# Four isolated environments in one image:
 #   py3  — Python 3.7 stack (scanpy, pysam, etc.) for snATAC_01/02 and pipeline scripts
 #   py2  — Python 2.7 stack, solely for clean_barcode_multiplets_1.1.py
 #   r    — R 4.1 + Seurat 4 / Signac 1 stack for snATAC_03/04/05
+#   jhub — jupyterhub-singleuser only, for JupyterHub/DockerSpawner use
 #
 # CellRanger-ATAC is NOT baked in (10x Genomics licence restriction).
 # Mount the binary at runtime — see docker-compose.yml.
@@ -57,7 +58,7 @@ RUN wget -q https://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bedGraphToBig
     && chmod +x bedGraphToBigWig && mv bedGraphToBigWig /usr/local/bin/
 
 # ---------------------------------------------------------------------------
-# micromamba — used to build all three conda environments
+# micromamba — used to build the py3, r and jhub conda environments
 # ---------------------------------------------------------------------------
 # micro.mamba.pm intermittently answers 500 before redirecting to S3. Download
 # to a file with retries on 5xx (retrying into a pipe would append the error
@@ -74,20 +75,12 @@ ENV MAMBA_ROOT_PREFIX=/opt/conda
 # ---------------------------------------------------------------------------
 # Python 3.7 environment  (py3 — snATAC_01, snATAC_02, pipeline scripts)
 # Versions confirmed from call_peaks_environment.yml (Python stack only).
-# JupyterLab is included here to serve all notebooks; R uses a separately
-# registered kernel (see r env below).
+# JupyterLab is included here to serve all notebooks in standalone use; R uses
+# a separately registered kernel (see r env below). Under JupyterHub, Lab is
+# served from the jhub env instead (see below).
 # webcolors is pinned to 1.13, the last release supporting Python 3.7:
 # conda-forge's webcolors 24.8.0 declares python >=3.5 but uses the :=
 # operator (3.8+), so JupyterLab fails to import under Python 3.7.
-# jupyterhub provides jupyterhub-singleuser for DockerSpawner-managed use
-# (e.g. JupyDo). Unpinned: JupyDo installs jupyterhub unpinned too, so there
-# is no fixed version to match. Python 3.7 caps it at 4.1.x (5.x requires
-# Python >= 3.8), while an unpinned hub built today runs 5.x.
-# alembic and mako (jupyterhub dependencies) are pinned for the same reason
-# as webcolors: conda-forge's alembic 1.13.0/1.13.1 (build 0) and mako 1.3.x
-# declare python >=3.7 but need 3.8 (typing.Protocol, importlib.metadata), so
-# jupyterhub-singleuser fails to import. 1.12.1 and 1.2.4 are the last
-# releases supporting Python 3.7 (PyPI requires_python).
 # ---------------------------------------------------------------------------
 RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         python=3.7.10 \
@@ -105,9 +98,6 @@ RUN /usr/local/bin/micromamba create -n py3 -c conda-forge -c bioconda -y \
         leidenalg=0.8.7 \
         macs2=2.2.7.1 \
         jupyterlab \
-        jupyterhub \
-        alembic==1.12.1 \
-        mako==1.2.4 \
         webcolors==1.13 \
     && /usr/local/bin/micromamba clean -afy
 
@@ -214,7 +204,36 @@ RUN PATH=/opt/conda/envs/py3/bin:$PATH /opt/conda/envs/r/bin/Rscript -e \
     "IRkernel::installspec(user=FALSE, name='r4', displayname='R 4.1 (nPOD)')"
 
 # ---------------------------------------------------------------------------
-# JupyterLab (served from the py3 env)
+# jhub environment  (jupyterhub-singleuser for JupyterHub/DockerSpawner,
+# e.g. JupyDo)
+# A dedicated env decouples the single-user server from py3's Python 3.7,
+# which capped jupyterhub at 4.1.x (5.x requires Python >= 3.8; conda-forge's
+# 5.5.0 build requires >= 3.10) and left it mismatched with 5.x hubs.
+# Pinned to 5.5.0, the version of the target hub (Dora, /hub/api).
+# jupyterhub-base is the Python package alone; the full jupyterhub package
+# adds nodejs and configurable-http-proxy, which only the hub itself needs.
+# jupyterlab is installed here because jupyterhub-singleuser serves Lab from
+# its own env. Kernels still run in py3 and r.
+# ---------------------------------------------------------------------------
+RUN /usr/local/bin/micromamba create -n jhub -c conda-forge -y \
+        python=3.11 \
+        jupyterhub-base==5.5.0 \
+        jupyterlab \
+    && /usr/local/bin/micromamba clean -afy
+
+# Both Jupyter installations (py3 standalone, jhub under a hub) must find the
+# same kernels, so they are registered in /usr/local/share/jupyter, which
+# every env searches (r4 above already is). py3's own python3 kernelspec
+# lives in the py3 prefix, invisible to jhub. jupyterlab pulls ipykernel into
+# jhub, and its python3 kernelspec (jhub's Python 3.11, no scanpy) would
+# otherwise answer to the name the Python notebooks ask for, so it is
+# removed and py3's is registered system-wide in its place.
+RUN rm -rf /opt/conda/envs/jhub/share/jupyter/kernels/python3 \
+    && /opt/conda/envs/py3/bin/python -m ipykernel install --prefix=/usr/local \
+           --name python3 --display-name "Python 3 (ipykernel)"
+
+# ---------------------------------------------------------------------------
+# JupyterLab (standalone: py3 env; under JupyterHub: jhub env)
 # ---------------------------------------------------------------------------
 EXPOSE 8888
 
